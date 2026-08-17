@@ -45,7 +45,9 @@ create table if not exists public.vote_options (
   sort_order integer not null default 1
 );
 
-create or replace function public.add_default_votes() returns trigger language plpgsql as $$
+-- Runs with the schema owner's rights so a public case submission can only
+-- create the four fixed vote choices through this trigger, not arbitrary rows.
+create or replace function public.add_default_votes() returns trigger language plpgsql security definer set search_path = public as $$
 begin
   insert into public.vote_options (case_id, label, sort_order) values
     (new.id, '有罪', 1), (new.id, '极其有罪', 2), (new.id, '罪大恶极', 3), (new.id, '请奶茶赎罪', 4);
