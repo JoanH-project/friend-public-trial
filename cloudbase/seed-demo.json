@@ -1,0 +1,5 @@
+{
+  "cases": [{ "_id": "demo", "slug": "demo", "name": "小王", "title": "一级拖延重犯", "avatarUrl": null, "punishment": "请大家喝奶茶", "heatCount": 0 }],
+  "crimes": [{ "caseId": "demo", "title": "「马上到了」", "description": "发送该消息时仍然躺在床上", "severity": 5, "sortOrder": 1 }, { "caseId": "demo", "title": "「吃什么都行」", "description": "连续否决六家餐厅", "severity": 5, "sortOrder": 2 }],
+  "vote_options": [{ "caseId": "demo", "label": "有罪", "voteCount": 0, "sortOrder": 1 }, { "caseId": "demo", "label": "极其有罪", "voteCount": 0, "sortOrder": 2 }, { "caseId": "demo", "label": "罪大恶极", "voteCount": 0, "sortOrder": 3 }, { "caseId": "demo", "label": "请奶茶赎罪", "voteCount": 0, "sortOrder": 4 }]
+}

@@ -1,0 +1,5 @@
+{
+  "cases": { "read": true, "write": false },
+  "crimes": { "read": true, "write": false },
+  "vote_options": { "read": true, "write": false }
+}

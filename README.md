@@ -1,16 +1,6 @@
 # Friend Public Trial
 
-朋友之间使用的、明确虚构的多人实时恶搞审判页。默认案件在 `/case/demo`；首页会跳转至此处。请只使用自愿参与者的轻松玩笑内容，勿放入真实严重指控或个人隐私。
-
-## 功能
-
-- 手机优先的赛博法庭/档案视觉
-- 全局讨伐热度与四档无限投票
-- Supabase RPC 原子自增与 Realtime 同步
-- 公开追加“罪状”投稿，所有在线访客实时可见
-- 连击、里程碑、数字/按钮动画和减少动画偏好
-- GUILTY 盖章与纯前端申诉彩蛋
-- 未配置环境变量时可先使用演示模式预览
+面向中国大陆网络的多人互动案件广场。保留 Next.js、App Router、Framer Motion 与现有移动端 UI；生产数据层使用腾讯云 CloudBase 文档数据库、云函数和 `watch()` 实时监听，不再依赖 Supabase 或 Vercel。
 
 ## 本地运行
 
@@ -20,32 +10,43 @@ cp .env.example .env.local
 npm run dev
 ```
 
-打开 `http://localhost:3000`。配置 Supabase 前，按钮仅会修改本地演示数据，不会与其他设备同步。
+未填 CloudBase 环境变量时，`/case/demo` 仍可用演示数据预览；不会同步给其他设备。
 
-## Supabase 配置
+## CloudBase 配置
 
-1. 新建 Supabase 项目，在 **SQL Editor** 执行完整的 [`supabase/schema.sql`](./supabase/schema.sql)。脚本会创建三张表、索引、RLS 只读策略、两个安全的原子递增 RPC、Realtime publication 和 demo 种子数据。
-2. 在 Project Settings → API 复制 Project URL 和 anon key。
-3. 在 `.env.local` 填写：
+1. 创建 **云数据库**（不要选 PostgreSQL）环境，开启 Web 安全域名与匿名访问 / Publishable Key。
+2. 在「环境管理 → API Key 配置」创建 Publishable Key，填入 `.env.local`：
 
 ```dotenv
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+NEXT_PUBLIC_TCB_ENV_ID=你的环境ID
+NEXT_PUBLIC_TCB_ACCESS_KEY=你的PublishableKey
+NEXT_PUBLIC_TCB_REGION=ap-shanghai
 ```
 
-重启开发服务器。`increment_heat` / `increment_vote` 会在数据库内执行 `count = count + 1`，因此不会因为并发点击丢失计数。Realtime 已在 SQL 中订阅 `cases` 和 `vote_options` 的更新。
+Publishable Key 可以暴露给浏览器；绝不能填入腾讯云 `SecretId` 或 `SecretKey`。
 
-已经运行过旧版 `schema.sql` 的项目，请额外执行一次 [`supabase/public-crimes.sql`](./supabase/public-crimes.sql)，以启用公共罪状投稿与其 Realtime 同步。
+3. 创建 `cases`、`crimes`、`vote_options` 三个集合，并导入 [`cloudbase/seed-demo.json`](./cloudbase/seed-demo.json) 中对应的数据。`cases` 的 demo 文档 `_id` 必须为 `demo`。
+4. 将 [`cloudbase/security-rules.json`](./cloudbase/security-rules.json) 的策略应用于三个集合：浏览器只读；全部写入经云函数完成。
+5. 在 CloudBase 部署 `cloudfunctions/` 下的 `incrementHeat`、`incrementVote`、`createCase`、`createCrime`、`updateCase`。函数端使用管理员 SDK；两个 increment 函数固定调用 `command.inc(1)`，客户端无法传入增量。
 
-## 修改案件内容
+页面通过 `watch()` 监听案件、罪状与投票集合；监听中断不会阻止云函数投票，下一次实时更新或刷新会恢复权威数据。
 
-在 Supabase 更新 `cases` 表中的 `name`、`title`、`avatar_url`、`punishment`；更新 `crimes` 和 `vote_options` 表即可。创建新案件时指定一个唯一 `slug`，然后访问 `/case/你的-slug`。头像 URL 失败时会优雅回退到默认 emoji。
+## 部署到 CloudBase 云托管
 
-## 部署 Vercel
+本仓库包含适用于 Next.js standalone 输出的 [`Dockerfile`](./Dockerfile)。在 CloudBase「云函数 / 托管」创建服务时：
 
-推送到 GitHub 后在 Vercel 导入仓库；Framework 选 Next.js，并在 Vercel 的 Environment Variables 中加入与 `.env.local` 相同的两个 `NEXT_PUBLIC_` 变量。部署即可，不需要额外构建命令。
+- 端口：`3000`
+- 开启公网访问
+- 使用 GitHub 仓库或当前目录构建
+- 配置与 `.env.local` 相同的三个 `NEXT_PUBLIC_TCB_*` 环境变量
 
-## 当前 TODO
+CloudBase 的默认域名可用于测试；长期使用中国大陆自定义域名需按平台要求备案。Vercel 可以保留预览，但正式流量不依赖它。
 
-- 演示头像目前使用 emoji；可在 Supabase 填 `avatar_url` 替换。
-- 公共匿名计数器适合朋友局；上线公开大流量前应增加 Supabase Edge Function / 速率限制和反滥用保护。
+## 安全边界
+
+- 数据库集合对浏览器仅公开读取。
+- 热度和票数只能由云函数执行原子 `inc(1)`。
+- 云函数验证 ID 和字段长度，且不接受客户端定义 `incrementBy`。
+- 头像当前使用默认 emoji 或已有 HTTPS URL；CloudBase Storage 可在后续单独接入。
+
+请只使用参与者同意的轻松玩笑内容，避免真实严重指控、隐私或未经许可的照片。
