@@ -23,7 +23,6 @@ export default function TrialPage({ slug }: { slug: string }) {
   const celebrate = useCallback((value: number) => { setFlash("⚔️ +1"); window.setTimeout(() => setFlash(null), 700); setCombo((n) => n + 1); window.setTimeout(() => setCombo(0), 1100); const hit = milestones.find((m) => value === m); if (hit) { setMilestone(milestoneText[hit]); window.setTimeout(() => setMilestone(null), 2100); } }, []);
 
   useEffect(() => {
-    if (!isCloudbaseConfigured) { setStatus("offline"); return; }
     let active = true; let stopListening: (() => void) | undefined; let refreshTimer: number | undefined;
     const load = async () => {
       try {
@@ -33,21 +32,21 @@ export default function TrialPage({ slug }: { slug: string }) {
         if (!stopListening) stopListening = watchCaseBundle(bundle.trial.id, () => { window.clearTimeout(refreshTimer); refreshTimer = window.setTimeout(() => void load(), 80); });
       } catch { if (active) setStatus("error"); }
     };
-    void load();
+    void (async () => { if (!await isCloudbaseConfigured()) { if (active) setStatus("offline"); return; } await load(); })();
     return () => { active = false; window.clearTimeout(refreshTimer); stopListening?.(); };
   }, [slug]);
 
   const increment = async (kind: "heat" | "vote", id?: string) => {
     if (cooling) return; setCooling(true); window.setTimeout(() => setCooling(false), 380);
-    if (!isCloudbaseConfigured || status !== "ready") { if (kind === "heat") { const next = trial.heat_count + 1; setTrial((x) => ({ ...x, heat_count: next })); celebrate(next); } else { setVotes((all) => all.map((x) => x.id === id ? { ...x, vote_count: x.vote_count + 1 } : x)); celebrate(total + 1); } return; }
+    if (status !== "ready") { if (kind === "heat") { const next = trial.heat_count + 1; setTrial((x) => ({ ...x, heat_count: next })); celebrate(next); } else { setVotes((all) => all.map((x) => x.id === id ? { ...x, vote_count: x.vote_count + 1 } : x)); celebrate(total + 1); } return; }
     try {
       if (kind === "heat") { const result = await incrementHeat(trial.id); setTrial((current) => ({ ...current, heat_count: Number(result.heatCount) })); celebrate(Number(result.heatCount)); }
       else if (id) { const result = await incrementVote(id); setVotes((all) => all.map((item) => item.id === id ? { ...item, vote_count: Number(result.voteCount) } : item)); celebrate(total + 1); }
     } catch { setFlash("连接失败，请重试"); window.setTimeout(() => setFlash(null), 1500); }
   };
 
-  const submitCrime = async (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); const title = crimeTitle.trim(); const description = crimeDescription.trim(); if (!title || !description) return; if (!isCloudbaseConfigured || status !== "ready") { setFlash("请先配置 CloudBase 再投稿"); window.setTimeout(() => setFlash(null), 1600); return; } setSubmittingCrime(true); try { const crime = await createCrime({ caseId: trial.id, title: `「${title.replace(/[「」]/g, "")}」`, description, sortOrder: crimes.length + 1 }); setCrimes((old) => old.some((item) => item.id === crime.id) ? old : [...old, crime]); setCrimeTitle(""); setCrimeDescription(""); setFlash("📁 罪状已入档"); window.setTimeout(() => setFlash(null), 1200); } catch { setFlash("罪状投稿失败，请重试"); window.setTimeout(() => setFlash(null), 1600); } finally { setSubmittingCrime(false); } };
-  const editCase = async () => { if (!isCloudbaseConfigured || status !== "ready") return; const name = window.prompt("修改昵称", trial.name); if (name === null || !name.trim()) return; const title = window.prompt("修改搞笑称号", trial.title); if (title === null || !title.trim()) return; const avatar = window.prompt("修改头像图片 URL（留空则使用默认头像）", trial.avatar_url ?? ""); if (avatar === null) return; try { const updated = await updateCase({ caseId: trial.id, name: name.trim().slice(0, 24), title: title.trim().slice(0, 36), avatarUrl: avatar.trim() || null }); setTrial(updated); setFlash("📁 案件资料已更新"); window.setTimeout(() => setFlash(null), 1200); } catch { setFlash("资料修改失败，请重试"); window.setTimeout(() => setFlash(null), 1600); } };
+  const submitCrime = async (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); const title = crimeTitle.trim(); const description = crimeDescription.trim(); if (!title || !description) return; if (status !== "ready") { setFlash("请先配置 CloudBase 再投稿"); window.setTimeout(() => setFlash(null), 1600); return; } setSubmittingCrime(true); try { const crime = await createCrime({ caseId: trial.id, title: `「${title.replace(/[「」]/g, "")}」`, description, sortOrder: crimes.length + 1 }); setCrimes((old) => old.some((item) => item.id === crime.id) ? old : [...old, crime]); setCrimeTitle(""); setCrimeDescription(""); setFlash("📁 罪状已入档"); window.setTimeout(() => setFlash(null), 1200); } catch { setFlash("罪状投稿失败，请重试"); window.setTimeout(() => setFlash(null), 1600); } finally { setSubmittingCrime(false); } };
+  const editCase = async () => { if (status !== "ready") return; const name = window.prompt("修改昵称", trial.name); if (name === null || !name.trim()) return; const title = window.prompt("修改搞笑称号", trial.title); if (title === null || !title.trim()) return; const avatar = window.prompt("修改头像图片 URL（留空则使用默认头像）", trial.avatar_url ?? ""); if (avatar === null) return; try { const updated = await updateCase({ caseId: trial.id, name: name.trim().slice(0, 24), title: title.trim().slice(0, 36), avatarUrl: avatar.trim() || null }); setTrial(updated); setFlash("📁 案件资料已更新"); window.setTimeout(() => setFlash(null), 1200); } catch { setFlash("资料修改失败，请重试"); window.setTimeout(() => setFlash(null), 1600); } };
 
   return <main><div className="noise" /><section className="shell">
     <header className="topline case-nav"><Link href="/">← 返回广场</Link><span>PUBLIC TRIAL</span><span>CASE #{trial.id === "demo" ? "000001" : trial.id.slice(0, 6).toUpperCase()}</span></header>

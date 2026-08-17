@@ -1,17 +1,29 @@
 import cloudbase from "@cloudbase/js-sdk";
 import type { Crime, TrialCase, VoteOption } from "@/types";
 
-const envId = process.env.NEXT_PUBLIC_TCB_ENV_ID;
-const accessKey = process.env.NEXT_PUBLIC_TCB_ACCESS_KEY;
+type CloudbaseApp = ReturnType<typeof cloudbase.init>;
 
-export const isCloudbaseConfigured = Boolean(envId && accessKey);
+let appPromise: Promise<CloudbaseApp | null> | null = null;
 
 // The publishable key is deliberately safe for browser code. PostgreSQL RLS
-// policies still decide exactly which rows each visitor may access.
-const app = isCloudbaseConfigured
-  ? cloudbase.init({ env: envId!, region: process.env.NEXT_PUBLIC_TCB_REGION || "ap-shanghai", accessKey: accessKey! })
-  : null;
-const db = app?.rdb();
+// policies still decide exactly which rows each visitor may access. CloudBase
+// Run injects variables at container start, so clients fetch this public
+// configuration from a server route instead of depending on build-time values.
+async function getApp() {
+  if (!appPromise) {
+    appPromise = fetch("/api/cloudbase-config", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        const config = await response.json() as { envId?: string | null; accessKey?: string | null; region?: string };
+        if (!config.envId || !config.accessKey) return null;
+        return cloudbase.init({ env: config.envId, region: config.region || "ap-shanghai", accessKey: config.accessKey });
+      })
+      .catch(() => null);
+  }
+  return appPromise;
+}
+
+export async function isCloudbaseConfigured() { return Boolean(await getApp()); }
 
 type CaseRow = { id: string; slug: string; name: string; title: string; avatar_url: string | null; punishment: string; heat_count: number; created_at: string };
 type CrimeRow = { id: string; case_id: string; title: string; description: string; severity: number; sort_order: number };
@@ -21,9 +33,10 @@ const asCase = (row: CaseRow): TrialCase => ({ id: row.id, slug: row.slug, name:
 const asCrime = (row: CrimeRow): Crime => ({ id: row.id, case_id: row.case_id, title: row.title, description: row.description, severity: Number(row.severity), sort_order: Number(row.sort_order) });
 const asVote = (row: VoteRow): VoteOption => ({ id: row.id, case_id: row.case_id, label: row.label, vote_count: Number(row.vote_count), sort_order: Number(row.sort_order) });
 
-function requireDb() {
-  if (!db) throw new Error("CloudBase 环境尚未配置");
-  return db;
+async function requireDb() {
+  const app = await getApp();
+  if (!app) throw new Error("CloudBase 环境尚未配置");
+  return app.rdb();
 }
 
 function throwIfError(result: { error?: { message?: string } | null }) {
@@ -31,13 +44,13 @@ function throwIfError(result: { error?: { message?: string } | null }) {
 }
 
 export async function getCases() {
-  const result = await requireDb().from("cases").select("*").order("created_at", { ascending: false });
+  const result = await (await requireDb()).from("cases").select("*").order("created_at", { ascending: false });
   throwIfError(result);
   return ((result.data || []) as CaseRow[]).map(asCase);
 }
 
 export async function getCaseBundle(slug: string) {
-  const client = requireDb();
+  const client = await requireDb();
   const caseResult = await client.from("cases").select("*").eq("slug", slug).limit(1);
   throwIfError(caseResult);
   const row = (caseResult.data || [])[0] as CaseRow | undefined;
@@ -56,31 +69,32 @@ export function watchCases(onChange: () => void) { const timer = window.setInter
 export function watchCaseBundle(_caseId: string, onChange: () => void) { const timer = window.setInterval(onChange, 2500); return () => window.clearInterval(timer); }
 
 export async function incrementHeat(caseId: string) {
-  const result = await requireDb().rpc("increment_heat", { p_case_id: caseId }); throwIfError(result);
+  const result = await (await requireDb()).rpc("increment_heat", { p_case_id: caseId }); throwIfError(result);
   return { heatCount: Number(result.data) };
 }
 
 export async function incrementVote(optionId: string) {
-  const result = await requireDb().rpc("increment_vote", { p_option_id: optionId }); throwIfError(result);
+  const result = await (await requireDb()).rpc("increment_vote", { p_option_id: optionId }); throwIfError(result);
   return { voteCount: Number(result.data) };
 }
 
 export async function createCase(input: { name: string; title: string; punishment: string; avatarUrl?: string | null }) {
-  const result = await requireDb().from("cases").insert({ name: input.name, title: input.title, punishment: input.punishment, avatar_url: input.avatarUrl || null }).select("*");
+  const result = await (await requireDb()).from("cases").insert({ name: input.name, title: input.title, punishment: input.punishment, avatar_url: input.avatarUrl || null }).select("*");
   throwIfError(result); return asCase((result.data || [])[0] as CaseRow);
 }
 
 export async function createCrime(input: { caseId: string; title: string; description: string; sortOrder: number }) {
-  const result = await requireDb().from("crimes").insert({ case_id: input.caseId, title: input.title, description: input.description, sort_order: input.sortOrder, severity: 4 }).select("*");
+  const result = await (await requireDb()).from("crimes").insert({ case_id: input.caseId, title: input.title, description: input.description, sort_order: input.sortOrder, severity: 4 }).select("*");
   throwIfError(result); return asCrime((result.data || [])[0] as CrimeRow);
 }
 
 export async function updateCase(input: { caseId: string; name: string; title: string; avatarUrl: string | null }) {
-  const result = await requireDb().from("cases").update({ name: input.name, title: input.title, avatar_url: input.avatarUrl }).eq("id", input.caseId).select("*");
+  const result = await (await requireDb()).from("cases").update({ name: input.name, title: input.title, avatar_url: input.avatarUrl }).eq("id", input.caseId).select("*");
   throwIfError(result); return asCase((result.data || [])[0] as CaseRow);
 }
 
 export async function uploadAvatar(file: File) {
+  const app = await getApp();
   if (!app) throw new Error("CloudBase 环境尚未配置");
   if (!file.type.startsWith("image/") || file.size > 2 * 1024 * 1024) throw new Error("请上传 2MB 以内的图片");
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-").slice(-64) || "avatar.png";

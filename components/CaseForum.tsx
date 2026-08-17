@@ -10,11 +10,10 @@ const demo: TrialCase[] = [{ id: "demo", slug: "demo", name: "小王", title: "�
 export default function CaseForum() {
   const [cases, setCases] = useState<TrialCase[]>(demo); const [ready, setReady] = useState(false); const [sort, setSort] = useState<"hot" | "new">("hot"); const [message, setMessage] = useState("");
   useEffect(() => {
-    if (!isCloudbaseConfigured) return;
     let active = true; let refreshTimer: number | undefined;
     const load = async () => { try { const data = await getCases(); if (active) { setCases(data); setReady(true); } } catch { if (active) setMessage("案件列表读取失败，请稍后重试"); } };
-    void load();
-    const stop = watchCases(() => { window.clearTimeout(refreshTimer); refreshTimer = window.setTimeout(() => void load(), 80); });
+    let stop = () => {};
+    void (async () => { if (!await isCloudbaseConfigured()) { if (active) setMessage("CloudBase 环境尚未配置"); return; } await load(); stop = watchCases(() => { window.clearTimeout(refreshTimer); refreshTimer = window.setTimeout(() => void load(), 80); }); })();
     return () => { active = false; window.clearTimeout(refreshTimer); stop(); };
   }, []);
   const ordered = [...cases].sort((a, b) => sort === "hot" ? b.heat_count - a.heat_count : a.slug.localeCompare(b.slug));

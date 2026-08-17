@@ -8,7 +8,7 @@ export default function CreateCase() {
   const [name, setName] = useState(""); const [title, setTitle] = useState(""); const [punishment, setPunishment] = useState("请大家喝奶茶");
   const [avatar, setAvatar] = useState<File | null>(null); const [saving, setSaving] = useState(false); const [message, setMessage] = useState("");
   const submit = async (event: React.FormEvent) => {
-    event.preventDefault(); if (!isCloudbaseConfigured) { setMessage("CloudBase 环境尚未配置"); return; }
+    event.preventDefault(); if (!await isCloudbaseConfigured()) { setMessage("CloudBase 环境尚未配置"); return; }
     setSaving(true); setMessage("");
     try {
       const avatarUrl = avatar ? await uploadAvatar(avatar) : null;
