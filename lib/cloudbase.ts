@@ -99,11 +99,12 @@ export async function uploadAvatar(file: File) {
   if (!file.type.startsWith("image/") || file.size > 2 * 1024 * 1024) throw new Error("请上传 2MB 以内的图片");
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-").slice(-64) || "avatar.png";
   const bucket = app.storage.from("avatars");
-  const result = await bucket.upload(`${Date.now()}-${safeName}`, file, { contentType: file.type });
+  const path = `${Date.now()}-${safeName}`;
+  const result = await bucket.upload(path, file, { contentType: file.type });
   if (result.error) throw new Error(result.error.message || "头像上传失败");
-  const fileId = result.data?.id;
-  if (!fileId) throw new Error("头像上传失败");
-  const urlResult = await bucket.createSignedUrl(fileId, 60 * 60 * 24 * 365);
+  // createSignedUrl expects the bucket-relative path, rather than the CloudBase
+  // object ID returned by upload(). Passing the ID causes STORAGE_OBJECT_NOT_FOUND.
+  const urlResult = await bucket.createSignedUrl(result.data?.path || path, 60 * 60 * 24 * 365);
   if (urlResult.error) throw new Error(urlResult.error.message || "头像链接生成失败");
   if (!urlResult.data?.fullSignedURL) throw new Error("头像链接生成失败");
   return urlResult.data.fullSignedURL;
