@@ -4,6 +4,17 @@ import type { Crime, TrialCase, VoteOption } from "@/types";
 type CloudbaseApp = ReturnType<typeof cloudbase.init>;
 
 let appPromise: Promise<CloudbaseApp | null> | null = null;
+const configCacheKey = "friend-public-trial.cloudbase-config.v1";
+type PublicConfig = { envId?: string | null; accessKey?: string | null; region?: string };
+
+function readCachedConfig(): PublicConfig | null {
+  try {
+    const raw = window.sessionStorage.getItem(configCacheKey);
+    if (!raw) return null;
+    const config = JSON.parse(raw) as PublicConfig;
+    return config.envId && config.accessKey ? config : null;
+  } catch { return null; }
+}
 
 // The publishable key is deliberately safe for browser code. PostgreSQL RLS
 // policies still decide exactly which rows each visitor may access. CloudBase
@@ -11,14 +22,15 @@ let appPromise: Promise<CloudbaseApp | null> | null = null;
 // configuration from a server route instead of depending on build-time values.
 async function getApp() {
   if (!appPromise) {
-    appPromise = fetch("/api/cloudbase-config", { cache: "no-store" })
+    const cachedConfig = readCachedConfig();
+    appPromise = (cachedConfig ? Promise.resolve(cachedConfig) : fetch("/api/cloudbase-config", { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) return null;
-        const config = await response.json() as { envId?: string | null; accessKey?: string | null; region?: string };
-        if (!config.envId || !config.accessKey) return null;
-        return cloudbase.init({ env: config.envId, region: config.region || "ap-shanghai", accessKey: config.accessKey });
-      })
-      .catch(() => null);
+        const config = await response.json() as PublicConfig;
+        if (config.envId && config.accessKey) window.sessionStorage.setItem(configCacheKey, JSON.stringify(config));
+        return config;
+      }).catch(() => null))
+      .then((config) => config?.envId && config.accessKey ? cloudbase.init({ env: config.envId, region: config.region || "ap-shanghai", accessKey: config.accessKey }) : null);
   }
   return appPromise;
 }

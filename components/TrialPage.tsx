@@ -5,18 +5,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createCrime, getCaseBundle, incrementHeat, incrementVote, isCloudbaseConfigured, updateCase, watchCaseBundle } from "@/lib/cloudbase";
 import type { Crime, TrialCase, VoteOption } from "@/types";
-
-const demoCase: TrialCase = { id: "demo", slug: "demo", name: "小王", title: "一级拖延重犯", avatar_url: null, punishment: "请大家喝奶茶", heat_count: 9 };
-const demoCrimes: Crime[] = [{ id: "1", case_id: "demo", title: "「马上到了」", description: "发送该消息时仍然躺在床上", severity: 5, sort_order: 1 }, { id: "2", case_id: "demo", title: "「吃什么都可以」", description: "连续否决六家餐厅", severity: 5, sort_order: 2 }, { id: "3", case_id: "demo", title: "已读但不回", description: "三天后只发来一张表情包", severity: 4, sort_order: 3 }];
-const demoVotes: VoteOption[] = ["有罪", "极其有罪", "罪大恶极", "请奶茶赎罪"].map((label, i) => ({ id: String(i), case_id: "demo", label, vote_count: [128, 356, 891, 204][i], sort_order: i }));
+import Avatar from "@/components/ui/Avatar";
 const milestones = [10, 50, 100, 500, 1000];
 const milestoneText: Record<number, string> = { 10: "⚠️ 案件开始引起关注", 50: "🔥 群情激愤", 100: "🔥🔥 民愤突破 100", 500: "⚔️ 全民讨伐", 1000: "💀 罪行震惊互联网" };
 
 export default function TrialPage({ slug }: { slug: string }) {
   const reduceMotion = useReducedMotion();
-  const [trial, setTrial] = useState<TrialCase>(demoCase);
-  const [crimes, setCrimes] = useState<Crime[]>(demoCrimes);
-  const [votes, setVotes] = useState<VoteOption[]>(demoVotes);
+  const [trial, setTrial] = useState<TrialCase | null>(null);
+  const [crimes, setCrimes] = useState<Crime[]>([]);
+  const [votes, setVotes] = useState<VoteOption[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "offline" | "error">("loading");
   const [flash, setFlash] = useState<string | null>(null); const [combo, setCombo] = useState(0); const [appeal, setAppeal] = useState(false); const [appeals, setAppeals] = useState(0); const [milestone, setMilestone] = useState<string | null>(null); const [cooling, setCooling] = useState(false); const [crimeTitle, setCrimeTitle] = useState(""); const [crimeDescription, setCrimeDescription] = useState(""); const [submittingCrime, setSubmittingCrime] = useState(false);
   const total = useMemo(() => votes.reduce((sum, item) => sum + item.vote_count, 0), [votes]);
@@ -36,11 +33,15 @@ export default function TrialPage({ slug }: { slug: string }) {
     return () => { active = false; window.clearTimeout(refreshTimer); stopListening?.(); };
   }, [slug]);
 
+  if (status === "loading") return <main><div className="noise" /><section className="shell"><header className="topline case-nav"><Link href="/">← 返回广场</Link><span>PUBLIC TRIAL</span></header><div className="trial-skeleton" aria-label="正在加载案件"><span className="skeleton-avatar" /><i /><i /><div /><div /><div /></div><p className="sync-state">● 正在同步案件资料</p></section></main>;
+  if (status === "offline") return <main><div className="noise" /><section className="shell"><p className="notice error">CloudBase 环境尚未配置</p></section></main>;
+  if (status === "error" || !trial) return <main><div className="noise" /><section className="shell"><p className="notice error">案件读取失败或已不存在，请返回广场重试。</p><Link href="/">← 返回案件广场</Link></section></main>;
+
   const increment = async (kind: "heat" | "vote", id?: string) => {
     if (cooling) return; setCooling(true); window.setTimeout(() => setCooling(false), 380);
-    if (status !== "ready") { if (kind === "heat") { const next = trial.heat_count + 1; setTrial((x) => ({ ...x, heat_count: next })); celebrate(next); } else { setVotes((all) => all.map((x) => x.id === id ? { ...x, vote_count: x.vote_count + 1 } : x)); celebrate(total + 1); } return; }
+    if (status !== "ready" || !trial) return;
     try {
-      if (kind === "heat") { const result = await incrementHeat(trial.id); setTrial((current) => ({ ...current, heat_count: Number(result.heatCount) })); celebrate(Number(result.heatCount)); }
+      if (kind === "heat") { const result = await incrementHeat(trial.id); setTrial((current) => current ? { ...current, heat_count: Number(result.heatCount) } : current); celebrate(Number(result.heatCount)); }
       else if (id) { const result = await incrementVote(id); setVotes((all) => all.map((item) => item.id === id ? { ...item, vote_count: Number(result.voteCount) } : item)); celebrate(total + 1); }
     } catch { setFlash("连接失败，请重试"); window.setTimeout(() => setFlash(null), 1500); }
   };
@@ -49,9 +50,9 @@ export default function TrialPage({ slug }: { slug: string }) {
   const editCase = async () => { if (status !== "ready") return; const name = window.prompt("修改昵称", trial.name); if (name === null || !name.trim()) return; const title = window.prompt("修改搞笑称号", trial.title); if (title === null || !title.trim()) return; const avatar = window.prompt("修改头像图片 URL（留空则使用默认头像）", trial.avatar_url ?? ""); if (avatar === null) return; try { const updated = await updateCase({ caseId: trial.id, name: name.trim().slice(0, 24), title: title.trim().slice(0, 36), avatarUrl: avatar.trim() || null }); setTrial(updated); setFlash("📁 案件资料已更新"); window.setTimeout(() => setFlash(null), 1200); } catch { setFlash("资料修改失败，请重试"); window.setTimeout(() => setFlash(null), 1600); } };
 
   return <main><div className="noise" /><section className="shell">
-    <header className="topline case-nav"><Link href="/">← 返回广场</Link><span>PUBLIC TRIAL</span><span>CASE #{trial.id === "demo" ? "000001" : trial.id.slice(0, 6).toUpperCase()}</span></header>
-    <motion.section initial={reduceMotion ? false : { opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} className="hero"><div className="avatar">{trial.avatar_url ? <img src={trial.avatar_url} alt={`${trial.name} 的头像`} onError={(e) => { e.currentTarget.style.display = "none"; }} /> : "😈"}</div><p className="eyebrow">今日公开审判</p><h1>{trial.name}</h1><p className="title">{trial.title}</p><button className="case-edit" onClick={editCase}>✎ 修改案件资料</button></motion.section>
-    {status === "loading" && <p className="sync-state">● 正在同步</p>}{status === "ready" && <p className="sync-state">● 数据已同步</p>}
+    <header className="topline case-nav"><Link href="/">← 返回广场</Link><span>PUBLIC TRIAL</span><span>CASE #{trial.id.slice(0, 6).toUpperCase()}</span></header>
+    <motion.section initial={reduceMotion ? false : { opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} className="hero"><Avatar className="avatar" src={trial.avatar_url} alt={`${trial.name} 的头像`} /><p className="eyebrow">今日公开审判</p><h1>{trial.name}</h1><p className="title">{trial.title}</p><button className="case-edit" onClick={editCase}>✎ 修改案件资料</button></motion.section>
+    <p className="sync-state">● 数据已同步</p>
     <section className="heat panel"><div><p className="eyebrow">🔥 当前讨伐热度</p><motion.strong key={trial.heat_count} initial={reduceMotion ? false : { scale: 1.18 }} animate={{ scale: 1 }}>{trial.heat_count.toLocaleString()}</motion.strong><p className="supporters">已有 {Math.max(1, Math.floor(trial.heat_count / 3)).toLocaleString()} 位正义之士加入讨伐</p></div><button className="heat-button" onClick={() => void increment("heat")} disabled={cooling}>⚔️ 加入讨伐</button></section>
     <section><div className="section-heading"><span>罪状档案</span><small>PUBLIC EVIDENCE</small></div><form className="crime-form" onSubmit={submitCrime}><p>📁 朋友恶搞投稿：只写轻松玩笑，不要真实严重指控或隐私。</p><input value={crimeTitle} onChange={(e) => setCrimeTitle(e.target.value)} maxLength={28} required placeholder="罪名，例如：已读但不回" aria-label="罪名" /><textarea value={crimeDescription} onChange={(e) => setCrimeDescription(e.target.value)} maxLength={120} required placeholder="事实：三天后只发来一张表情包" aria-label="罪状事实" /><button type="submit" disabled={submittingCrime}>{submittingCrime ? "正在归档…" : "＋ 追加罪状"}</button></form><div className="crimes">{crimes.map((crime, i) => <article className="crime" key={crime.id}><span>罪状 {String(i + 1).padStart(2, "0")}</span><h2>{crime.title}</h2><p><b>事实：</b>{crime.description}</p><em>{"★".repeat(crime.severity)}{"☆".repeat(5 - crime.severity)}</em></article>)}</div></section>
     <section className="votes panel"><div className="section-heading"><span>公众判决</span><small>可无限投票</small></div><div className="vote-grid">{votes.map((v, index) => <motion.button whileTap={reduceMotion ? undefined : { scale: .96 }} key={v.id} onClick={() => void increment("vote", v.id)} disabled={cooling}><span>{["🔨", "😐", "😈", "🧋"][index]} {v.label}</span><b>{v.vote_count.toLocaleString()}<small>票</small></b></motion.button>)}</div><p className="total">🔥 总讨伐票数：<strong>{total.toLocaleString()}</strong></p></section>
