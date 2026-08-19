@@ -91,8 +91,11 @@ export async function incrementVote(optionId: string) {
 }
 
 export async function createCase(input: { name: string; title: string; punishment: string; avatarUrl?: string | null }) {
-  const result = await (await requireDb()).from("cases").insert({ name: input.name, title: input.title, punishment: input.punishment, avatar_url: input.avatarUrl || null }).select("*");
-  throwIfError(result); return asCase((result.data || [])[0] as CaseRow);
+  const result = await (await requireDb()).from("cases").insert({ name: input.name, title: input.title, punishment: input.punishment, avatar_url: input.avatarUrl || null }).select("id,slug");
+  throwIfError(result);
+  const item = (result.data || [])[0] as Pick<CaseRow, "id" | "slug"> | undefined;
+  if (!item) throw new Error("案件创建后未返回编号");
+  return item;
 }
 
 export async function createCrime(input: { caseId: string; title: string; description: string; sortOrder: number }) {
